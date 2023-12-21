@@ -214,6 +214,41 @@ tree_push(struct tree *t, const char *path)
 }
 
 /*
+ * opendir() with O_NOATIME if possible.
+ */
+#if defined(HAVE_FDOPENDIR) && defined(O_NOATIME)
+static DIR*
+tree_opendir(const char *path)
+{
+	const int flags = O_RDONLY | O_DIRECTORY | O_CLOEXEC;
+	int fd, e;
+	DIR *d;
+
+	fd = open(path, flags | O_NOATIME);
+	if (fd < 0) {
+		/* Try again without O_NOATIME. */
+		fd = open(path, flags);
+		if (fd < 0)
+			return NULL;
+	}
+
+	d = fdopendir(fd);
+	if (d == NULL) {
+		e = errno;
+		close(fd);
+		errno = e;
+	}
+	return (d);
+}
+#else
+static DIR*
+tree_opendir(const char *path)
+{
+	return (opendir(path));
+}
+#endif
+
+/*
  * Append a name to the current path.
  */
 static void
@@ -443,7 +478,7 @@ tree_next(struct tree *t)
 				return (t->visit_type = TREE_ERROR_DIR);
 			}
 			t->depth++;
-			t->d = opendir(".");
+			t->d = tree_opendir(".");
 			if (t->d == NULL) {
 				t->tree_errno = errno;
 				r = tree_ascend(t); /* Undo "chdir" */
